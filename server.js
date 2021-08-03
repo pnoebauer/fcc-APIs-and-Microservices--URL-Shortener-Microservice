@@ -56,12 +56,22 @@ app.post('/api/shorturl', (req, res) => {
 	const {url} = req.body;
 	// console.log(url);
 
-	const urlObject = new URL(url);
+	let urlObject;
+	try {
+		urlObject = new URL(url);
+	} catch (e) {
+		return res.json({error: 'invalid URL'});
+	}
 	const urlOrigin = urlObject.origin;
 	const urlHostName = urlObject.hostname;
 	// console.log(urlOrigin);
 	// console.log(urlObject.pathname);
 	// console.log(urlObject.host, url);
+
+	const httpRegex = /^(http|https)(:\/\/)/;
+	if (!httpRegex.test(url)) {
+		return res.json({error: 'invalid url'});
+	}
 
 	dns.lookup(urlHostName, (err, address, family) => {
 		if (!address) {
@@ -72,11 +82,9 @@ app.post('/api/shorturl', (req, res) => {
 		Url.findOne({url}, (err, foundUrl) => {
 			if (err) return console.log(err);
 
-			console.log({foundUrl}, 'found');
-			const {url, shortUrl} = foundUrl;
-
 			// if it does not exist in the db yet, then add it
 			if (!foundUrl) {
+				// console.log('not found');
 				Url.countDocuments({}, (err, docCount) => {
 					if (err) return console.log(err);
 					// console.log(docCount);
@@ -84,28 +92,28 @@ app.post('/api/shorturl', (req, res) => {
 					new Url({url, shortUrl: docCount + 1}).save((err, savedUrl) => {
 						if (err) return console.log(err);
 
-						console.log({savedUrl}, 'saved');
 						const {url, shortUrl} = savedUrl;
 
 						return res.json({original_url: url, short_url: shortUrl});
 					});
 				});
+			} else {
+				const {url, shortUrl} = foundUrl;
+				return res.json({original_url: url, short_url: shortUrl});
 			}
-
-			return res.json({original_url: url, short_url: shortUrl});
 		});
 	});
-
-	return res.json({error: 'invalid url'});
 });
 
 // Url.find({}, (err, data) => console.log(data));
 const findAll = async () => {
 	const docs = await Url.find({}).exec();
 
-	console.log({docs});
+	// console.log({docs});
+	return docs;
 };
-findAll();
+
+// findAll().then(docs => console.log({docs}));
 
 // remove all documents
 // Url.remove({}, (err, data) => console.log(data));
@@ -117,7 +125,7 @@ app.get('/api/shorturl/:index', (req, res) => {
 	Url.findOne({shortUrl: index}, (err, foundUrl) => {
 		if (err) return console.log(err);
 
-		console.log({foundUrl}, 'found based on params');
+		// console.log({foundUrl}, 'found based on params');
 
 		if (!foundUrl) {
 			return res.json({error: 'No short URL found for the given input'});
@@ -126,8 +134,6 @@ app.get('/api/shorturl/:index', (req, res) => {
 		// redirect to stored url
 		return res.redirect(foundUrl.url);
 	});
-
-	return res.json({error: 'short url does not exist in the DB'});
 });
 
 app.listen(port, function () {
