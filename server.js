@@ -3,6 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 const dns = require('dns');
+const mongoose = require('mongoose');
+
+mongoose.connect(process.env.MONGO_URI, {
+	useNewUrlParser: true,
+	useUnifiedTopology: true,
+});
 
 // Basic Configuration
 const port = process.env.PORT || 3000;
@@ -11,13 +17,13 @@ app.use(cors());
 
 app.use('/public', express.static(`${process.cwd()}/public`));
 
-app.get('/', function(req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
+app.get('/', function (req, res) {
+	res.sendFile(process.cwd() + '/views/index.html');
 });
 
 // Your first API endpoint
-app.get('/api/hello', function(req, res) {
-  res.json({ greeting: 'hello API' });
+app.get('/api/hello', function (req, res) {
+	res.json({greeting: 'hello API'});
 });
 
 // User Stories
@@ -32,36 +38,98 @@ app.get('/api/hello', function(req, res) {
 
 app.use(express.urlencoded({extended: false}));
 
-app.post('/api/shorturl', (req, res) => {
-
-  const {url} = req.body;
-  // console.log(url);
-
-  const urlObject = new URL(url);
-  const urlOrigin = urlObject.origin;
-  const urlHostName = urlObject.hostname;
-  // console.log(urlOrigin);
-  // console.log(urlObject.pathname);
-  console.log(urlObject.host, url);
-
-  dns.lookup(urlHostName, (err, address, family) => {
-    if(!address) {
-      return res.json({error: 'invalid URL'});
-    }
-    // console.log(`address: ${address} family: IPv${family}`);
-
-    res.json({original_url: url, short_url: 1})
-  });
-
-  // res.redirect('https://app.example.io');
+const urlSchema = new mongoose.Schema({
+	url: {type: String, required: true},
+	shortUrl: {type: Number, required: true},
 });
 
+const Url = mongoose.model('Url', urlSchema);
+
+// const testUrl = new Url({url: 'https://www.google.com'});
+// testUrl.save((err, data) => {
+// 	if (err) return console.log(err);
+
+// 	console.log({data});
+// });
+
+app.post('/api/shorturl', (req, res) => {
+	const {url} = req.body;
+	// console.log(url);
+
+	const urlObject = new URL(url);
+	const urlOrigin = urlObject.origin;
+	const urlHostName = urlObject.hostname;
+	// console.log(urlOrigin);
+	// console.log(urlObject.pathname);
+	// console.log(urlObject.host, url);
+
+	dns.lookup(urlHostName, (err, address, family) => {
+		if (!address) {
+			return res.json({error: 'invalid URL'});
+		}
+		// console.log(`address: ${address} family: IPv${family}`);
+
+		Url.findOne({url}, (err, foundUrl) => {
+			if (err) return console.log(err);
+
+			console.log({foundUrl}, 'found');
+			const {url, shortUrl} = foundUrl;
+
+			// if it does not exist in the db yet, then add it
+			if (!foundUrl) {
+				Url.countDocuments({}, (err, docCount) => {
+					if (err) return console.log(err);
+					// console.log(docCount);
+
+					new Url({url, shortUrl: docCount + 1}).save((err, savedUrl) => {
+						if (err) return console.log(err);
+
+						console.log({savedUrl}, 'saved');
+						const {url, shortUrl} = savedUrl;
+
+						return res.json({original_url: url, short_url: shortUrl});
+					});
+				});
+			}
+
+			return res.json({original_url: url, short_url: shortUrl});
+		});
+	});
+
+	return res.json({error: 'invalid url'});
+});
+
+// Url.find({}, (err, data) => console.log(data));
+const findAll = async () => {
+	const docs = await Url.find({}).exec();
+
+	console.log({docs});
+};
+findAll();
+
+// remove all documents
+// Url.remove({}, (err, data) => console.log(data));
+
 app.get('/api/shorturl/:index', (req, res) => {
-  res.json({par: req.params.index});
+	// res.json({par: req.params.index});
+	const {index} = req.params;
 
-  // res.redirect('https://app.example.io');
-})
+	Url.findOne({shortUrl: index}, (err, foundUrl) => {
+		if (err) return console.log(err);
 
-app.listen(port, function() {
-  console.log(`Listening on port ${port}`);
+		console.log({foundUrl}, 'found based on params');
+
+		if (!foundUrl) {
+			return res.json({error: 'No short URL found for the given input'});
+		}
+
+		// redirect to stored url
+		return res.redirect(foundUrl.url);
+	});
+
+	return res.json({error: 'short url does not exist in the DB'});
+});
+
+app.listen(port, function () {
+	console.log(`Listening on port ${port}`);
 });
